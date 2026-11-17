@@ -1,0 +1,38 @@
+{
+  "language": "English",
+  "classes": [
+    "neutral",
+    "hello",
+    "thank_you",
+    "yes",
+    "no",
+    "please",
+    "water",
+    "food",
+    "need_help",
+    "toilet"
+  ],
+  "phrases": {
+    "hello": "HELLO",
+    "thank_you": "THANK YOU",
+    "yes": "YES",
+    "no": "NO",
+    "please": "PLEASE",
+    "water": "WATER",
+    "food": "FOOD",
+    "need_help": "I NEED HELP",
+    "toilet": "WHERE IS THE TOILET"
+  },
+  "category": {
+    "hello": "Daily needs",
+    "thank_you": "Daily needs",
+    "yes": "Daily needs",
+    "no": "Daily needs",
+    "please": "Daily needs",
+    "water": "Daily needs",
+    "food": "Daily needs",
+    "need_help": "Emergency",
+    "toilet": "Daily needs"
+  }
+}
+

@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live UDP 3D Sensor Glove Visualizer (20 Hz)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #090d16;
+      --card: rgba(15, 23, 42, 0.85);
+      --border: rgba(56, 189, 248, 0.25);
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --glow: rgba(56, 189, 248, 0.4);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: 'Space Grotesk', system-ui, sans-serif;
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 1.5rem;
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(10px);
+      z-index: 10;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .brand h1 {
+      font-size: 1.125rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: #ffffff;
+    }
+    .badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      padding: 0.2rem 0.6rem;
+      border-radius: 4px;
+      font-weight: 600;
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(52, 211, 153, 0.3);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.375rem;
+    }
+    .pulse-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #34d399;
+      box-shadow: 0 0 8px #34d399;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 0.4; } 50% { opacity: 1; } 100% { opacity: 0.4; }
+    }
+    .stats-bar {
+      display: flex;
+      gap: 1.25rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8125rem;
+      color: var(--muted);
+    }
+    .stats-bar span b { color: var(--accent); }
+
+    /* 3D Viewport */
+    #viewport-container {
+      flex: 1;
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+    #canvas3d {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* Floating HUD Panels */
+    .hud-panel {
+      position: absolute;
+      background: var(--card);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(8px);
+      border-radius: 8px;
+      padding: 0.875rem 1.125rem;
+      font-family: 'JetBrains Mono', monospace;
+      pointer-events: none;
+    }
+    .hud-left {
+      top: 1rem;
+      left: 1rem;
+      min-width: 240px;
+    }
+    .hud-title {
+      font-size: 0.6875rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+      display: block;
+    }
+    .sensor-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.8125rem;
+      margin-bottom: 0.35rem;
+    }
+    .sensor-bar-bg {
+      width: 90px;
+      height: 8px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 4px;
+      overflow: hidden;
+      margin: 0 0.5rem;
+    }
+    .sensor-bar-fill {
+      height: 100%;
+      width: 10%;
+      background: #34d399;
+      border-radius: 4px;
+      transition: width 0.05s ease-out, background 0.2s;
+    }
+
+    /* Calibration Toolbar */
+    .calib-box {
+      margin-top: 0.75rem;
+      padding-top: 0.6rem;
+      border-top: 1px solid var(--border);
+      pointer-events: auto;
+    }
+    .calib-btn {
+      flex: 1;
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.35rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-family: inherit;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    .calib-btn:hover {
+      background: var(--accent);
+      color: #0f172a;
+    }
+    .calib-btn-sub {
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.2);
+      color: var(--muted);
+      padding: 0.15rem 0.45rem;
+      border-radius: 3px;
+      font-size: 0.6875rem;
+      cursor: pointer;
+    }
+    .calib-btn-sub:hover {
+      color: var(--text);
+      border-color: var(--text);
+    }
+
+    .hud-right {
+      top: 1rem;
+      right: 1rem;
+      text-align: right;
+    }
+    .hud-right .val-large {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    /* Oscilloscope canvas at bottom */
+    .oscilloscope-panel {
+      position: absolute;
+      bottom: 1rem;
+      left: 1rem;
+      right: 1rem;
+      height: 85px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.5rem 1rem;
+      display: flex;
+      flex-direction: column;
+      backdrop-filter: blur(8px);
+    }
+    .osc-header {
+      display: flex;
+      justify-content: space-between;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.6875rem;
+      color: var(--muted);
+      margin-bottom: 0.25rem;
+    }
+    #oscCanvas {
+      width: 100%;
+      height: 55px;
+      display: block;
+    }
+
+    /* Controls overlay */
+    .controls-hint {
+      position: absolute;
+      bottom: 7rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(255,255,255,0.1);
+      padding: 0.3rem 0.8rem;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      color: var(--muted);
+      pointer-events: none;
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="badge" id="connBadge">
+        <span class="pulse-dot"></span>
+        <span id="connText">UDP LISTENING (PORT 4210)</span>
+      </div>
+      <h1>Direct UDP 3D Sensor Glove</h1>
+    </div>
+    <div class="stats-bar">
+      <span>FPS: <b id="fpsVal">0.0</b></span>
+      <span>SEQ: <b id="seqVal">0</b></span>
+      <span>LOST: <b id="lostVal">0</b></span>
+      <span>LATENCY: <b>&lt; 15 ms</b></span>
+    </div>
+  </header>
+
+  <div id="viewport-container">
+    <div id="canvas3d"></div>
+
+    <!-- Live Speech Announcement Banner -->
+    <div id="speechBanner" style="
+      position: absolute;
+      top: 1.5rem;
+      left: 50%;
+      transform: translate(-50%, -10px);
+      background: rgba(15, 23, 42, 0.95);
+      border: 2px solid #38bdf8;
+      box-shadow: 0 0 25px rgba(56, 189, 248, 0.6);
+      color: #ffffff;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 1.5rem;
+      font-weight: 700;
+      padding: 0.6rem 2rem;
+      border-radius: 9999px;
+      letter-spacing: 0.05em;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: 50;
+    "></div>
+
+    <!-- HUD Overlay Left: Sensor Flex Stress -->
+    <div class="hud-panel hud-left">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem; gap:0.3rem;">
+        <span class="hud-title" style="margin:0;">FLEX SENSORS &bull; BEND MONITOR</span>
+        <div style="display:flex; gap:0.3rem;">
+          <button class="calib-btn-sub" onclick="tareRestingHand()" title="Set current pose as flat hand">🎯 ZERO</button>
+          <button class="calib-btn-sub" onclick="resetCalibration()" title="Reset calibration to defaults">🔄 RESET</button>
+        </div>
+      </div>
+
+      <div class="sensor-item">
+        <span style="width:75px;">F1 THUMB</span>
+        <div class="sensor-bar-bg"><div class="sensor-bar-fill" id="fill-0"></div></div>
+        <span id="txt-0" style="font-size:0.75rem; min-width:85px; text-align:right;">1170 (0%)</span>
+      </div>
+      <div class="sensor-item">
+        <span style="width:75px;">F2 INDEX</span>
+        <div class="sensor-bar-bg"><div class="sensor-bar-fill" id="fill-1"></div></div>
+        <span id="txt-1" style="font-size:0.75rem; min-width:85px; text-align:right;">1165 (0%)</span>
+      </div>
+      <div class="sensor-item">
+        <span style="width:75px;">F3 MIDDLE</span>
+        <div class="sensor-bar-bg"><div class="sensor-bar-fill" id="fill-2"></div></div>
+        <span id="txt-2" style="font-size:0.75rem; min-width:85px; text-align:right;">1180 (0%)</span>
+      </div>
+      <div class="sensor-item">
+        <span style="width:75px;">F4 RING</span>
+        <div class="sensor-bar-bg"><div class="sensor-bar-fill" id="fill-3"></div></div>
+        <span id="txt-3" style="font-size:0.75rem; min-width:85px; text-align:right;">1172 (0%)</span>
+      </div>
+      <div class="sensor-item">
+        <span style="width:75px;">F5 LITTLE</span>
+        <div class="sensor-bar-bg"><div class="sensor-bar-fill" id="fill-4"></div></div>
+        <span id="txt-4" style="font-size:0.75rem; min-width:85px; text-align:right;">1168 (0%)</span>
+      </div>
+
+      <!-- Sensitivity & Range Control -->
+      <div class="calib-box">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem; font-size:0.75rem;">
+          <span>Sensitivity (Bend Span):</span>
+          <b id="spanVal" style="color:var(--accent);">250 counts</b>
+        </div>
+        <input type="range" id="spanSlider" min="80" max="600" value="250" step="10" style="width:100%; cursor:pointer;" oninput="updateSpan(this.value)">
+        <div style="display:flex; justify-content:space-between; font-size:0.6875rem; color:var(--muted); margin-top:0.2rem;">
+          <span>High (80)</span>
+          <span>Medium (250)</span>
+          <span>Low (600)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- HUD Overlay Right: 6-DOF IMU -->
+    <div class="hud-panel hud-right">
+      <span class="hud-title">MPU6050 6-DOF ORIENTATION</span>
+      <div class="val-large" id="tiltState">LEVEL</div>
+      <div style="font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem;">
+        Pitch: <b id="pitchDeg" style="color:var(--accent);">0°</b> &bull; Roll: <b id="rollDeg" style="color:var(--accent);">0°</b>
+      </div>
+      <div style="font-size: 0.6875rem; color: var(--muted); margin-top: 0.25rem;" id="accVector">
+        ACC: [0.00, 0.00, 1.00] g
+      </div>
+    </div>
+
+    <!-- Live Multi-channel Oscilloscope -->
+    <div class="oscilloscope-panel">
+      <div class="osc-header">
+        <span>LIVE SENSOR TELEMETRY OSCILLOSCOPE (20 Hz STREAM)</span>
+        <span>CH1: Thumb &bull; CH2: Index &bull; CH3: Middle &bull; CH4: Ring &bull; CH5: Little</span>
+      </div>
+      <canvas id="oscCanvas"></canvas>
+    </div>
+
+    <div class="controls-hint">
+      🖱️ Left-Click + Drag: Rotate 3D Hand &bull; Scroll: Zoom &bull; Right-Click: Pan
+    </div>
+  </div>
+
+  <script>
+    // ---------- 3D Holographic / Translucent Sensor Glove ----------
+    let scene, camera, renderer, controls;
+    let handGroup, fingerChains = [], sensorStrips = [];
+    
+    // Normalized bend target (0.0=open, 1.0=bent)
+    const targetBends = [0, 0, 0, 0, 0];
+    const currentBends = [0, 0, 0, 0, 0];
+    let targetPitch = 0, targetRoll = 0;
+    let currentPitch = 0, currentRoll = 0;
+
+    // Calibration bounds (10k divider defaults)
+    const OPEN_ADC = 1170.0;
+    const FIST_ADC = 480.0;
+
+    // Oscilloscope history
+    const oscHistory = [[], [], [], [], []];
+    const OSC_LEN = 120;
+
+    function init3D() {
+      const container = document.getElementById("canvas3d");
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x090d16);
+
+      camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
+      camera.position.set(0, 3.8, 8.5);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(w, h);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      container.appendChild(renderer.domElement);
+
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+
+      // Lights
+      const ambLight = new THREE.AmbientLight(0xffffff, 0.5);
+      scene.add(ambLight);
+
+      const cyanLight = new THREE.DirectionalLight(0x38bdf8, 1.2);
+      cyanLight.position.set(5, 8, 6);
+      scene.add(cyanLight);
+
+      const purpleLight = new THREE.DirectionalLight(0xa855f7, 0.8);
+      purpleLight.position.set(-6, -4, -4);
+      scene.add(purpleLight);
+
+      // Floor grid
+      const grid = new THREE.GridHelper(16, 32, 0x1e293b, 0x0f172a);
+      grid.position.y = -2.6;
+      scene.add(grid);
+
+      buildGloveModel();
+
+      window.addEventListener("resize", onWindowResize);
+      animate();
+    }
+
+    function buildGloveModel() {
+      handGroup = new THREE.Group();
+      handGroup.position.set(0, -0.6, 0);
+      scene.add(handGroup);
+
+      // Translucent holographic glove material
+      const gloveMat = new THREE.MeshPhysicalMaterial({
+        color: 0x1e293b,
+        transparent: true,
+        opacity: 0.82,
+        roughness: 0.25,
+        metalness: 0.4,
+        clearcoat: 0.8,
+        wireframe: false
+      });
+
+      // Neon joint ring material
+      const jointRingMat = new THREE.MeshStandardMaterial({
+        color: 0x38bdf8,
+        emissive: 0x0284c7,
+        emissiveIntensity: 0.6,
+        roughness: 0.2
+      });
+
+      // Palm body
+      const palmGeo = new THREE.BoxGeometry(2.3, 2.6, 0.55);
+      const palmMesh = new THREE.Mesh(palmGeo, gloveMat);
+      handGroup.add(palmMesh);
+
+      // Wrist bracket
+      const wristGeo = new THREE.CylinderGeometry(0.95, 1.05, 0.7, 20);
+      const wristMesh = new THREE.Mesh(wristGeo, jointRingMat);
+      wristMesh.position.set(0, -1.65, 0);
+      handGroup.add(wristMesh);
+
+      // MPU6050 IMU chip mounted on dorsal hand
+      const imuGeo = new THREE.BoxGeometry(0.65, 0.65, 0.12);
+      const imuMat = new THREE.MeshStandardMaterial({ color: 0x10b981, emissive: 0x059669, emissiveIntensity: 0.4 });
+      const imuMesh = new THREE.Mesh(imuGeo, imuMat);
+      imuMesh.position.set(0, 0, -0.34);
+      handGroup.add(imuMesh);
+
+      // 5 Finger configurations
+      const configs = [
+        { name: "thumb",  x: -1.35, y: -0.55, z: 0.12, len: 0.65, rad: 0.36, isThumb: true },
+        { name: "index",  x: -0.85, y: 1.35,  z: 0.00, len: 0.82, rad: 0.32, isThumb: false },
+        { name: "middle", x: -0.05, y: 1.45,  z: 0.00, len: 0.92, rad: 0.33, isThumb: false },
+        { name: "ring",   x: 0.75,  y: 1.35,  z: 0.00, len: 0.84, rad: 0.31, isThumb: false },
+        { name: "little", x: 1.40,  y: 1.15,  z: 0.00, len: 0.68, rad: 0.28, isThumb: false }
+      ];
+
+      fingerChains = [];
+      sensorStrips = [];
+
+      configs.forEach((cfg, fIdx) => {
+        const root = new THREE.Group();
+        root.position.set(cfg.x, cfg.y, cfg.z);
+
+        if (cfg.isThumb) {
+          root.rotation.z = Math.PI * 0.22;
+          root.rotation.y = Math.PI * 0.12;
+        }
+
+        handGroup.add(root);
+
+        const segments = [];
+        let parent = root;
+
+        // Dynamic flexible sensor strip material (changes color with bend stress)
+        const stripMat = new THREE.MeshStandardMaterial({
+          color: 0x34d399,
+          emissive: 0x10b981,
+          emissiveIntensity: 0.4,
+          roughness: 0.3
+        });
+        sensorStrips.push(stripMat);
+
+        for (let s = 0; s < 3; s++) {
+          const segLen = cfg.len * (s === 0 ? 1.0 : s === 1 ? 0.85 : 0.7);
+          const segRad = cfg.rad * (1.0 - s * 0.15);
+
+          // Knuckle joint
+          const jGeo = new THREE.SphereGeometry(segRad * 1.08, 12, 12);
+          const jMesh = new THREE.Mesh(jGeo, jointRingMat);
+          parent.add(jMesh);
+
+          // Phalanx bone cylinder
+          const bGeo = new THREE.CylinderGeometry(segRad * 0.88, segRad, segLen, 12);
+          const bMesh = new THREE.Mesh(bGeo, gloveMat);
+          bMesh.position.y = segLen / 2;
+          parent.add(bMesh);
+
+          // Visible flex sensor ribbon mounted on top of the finger!
+          const ribbonGeo = new THREE.BoxGeometry(segRad * 0.7, segLen * 0.92, 0.05);
+          const ribbonMesh = new THREE.Mesh(ribbonGeo, stripMat);
+          ribbonMesh.position.set(0, segLen / 2, segRad * 0.9);
+          parent.add(ribbonMesh);
+
+          const nextNode = new THREE.Group();
+          nextNode.position.y = segLen;
+          parent.add(nextNode);
+
+          segments.push(parent);
+          parent = nextNode;
+        }
+
+        fingerChains.push({ segments, isThumb: cfg.isThumb });
+      });
+    }
+
+    function onWindowResize() {
+      const container = document.getElementById("canvas3d");
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      resizeOscilloscope();
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // Smooth 60 FPS kinematic interpolation (lerp)
+      const k = 0.18;
+      for (let i = 0; i < 5; i++) {
+        currentBends[i] += (targetBends[i] - currentBends[i]) * k;
+        const b = currentBends[i];
+        const chain = fingerChains[i];
+
+        if (chain) {
+          const maxAngle = Math.PI * 0.52; // ~93 deg
+          const ang = b * maxAngle;
+          if (chain.isThumb) {
+            chain.segments[0].rotation.x = ang * 0.55;
+            chain.segments[0].rotation.y = ang * 0.35;
+            chain.segments[1].rotation.x = ang * 0.65;
+            chain.segments[2].rotation.x = ang * 0.50;
+          } else {
+            chain.segments[0].rotation.x = ang * 0.50;
+            chain.segments[1].rotation.x = ang * 0.35;
+            chain.segments[2].rotation.x = ang * 0.25;
+          }
+        }
+
+        // Dynamically change flex sensor strip color: Green (0%) -> Yellow (50%) -> Red (100%)
+        if (sensorStrips[i]) {
+          const hue = (1.0 - b) * 0.33; // 0.33=Green -> 0.0=Red
+          sensorStrips[i].color.setHSL(hue, 1.0, 0.45);
+          sensorStrips[i].emissive.setHSL(hue, 1.0, 0.25);
+        }
+      }
+
+      currentPitch += (targetPitch - currentPitch) * k;
+      currentRoll += (targetRoll - currentRoll) * k;
+
+      if (handGroup) {
+        handGroup.rotation.x = currentPitch;
+        handGroup.rotation.z = -currentRoll;
+      }
+
+      if (controls) controls.update();
+      renderer.render(scene, camera);
+    }
+
+    // ---------- Telemetry Ingestion (from UDP Server via EventSource) ----------
+    const fillEls = [0,1,2,3,4].map(i => document.getElementById(`fill-${i}`));
+    const txtEls = [0,1,2,3,4].map(i => document.getElementById(`txt-${i}`));
+    const fpsVal = document.getElementById("fpsVal");
+    const seqVal = document.getElementById("seqVal");
+    const lostVal = document.getElementById("lostVal");
+    const tiltState = document.getElementById("tiltState");
+    const pitchDeg = document.getElementById("pitchDeg");
+    const rollDeg = document.getElementById("rollDeg");
+    const accVector = document.getElementById("accVector");
+
+    let lastSeq = null, lostTotal = 0, frameCount = 0, lastFpsTime = Date.now();
+
+    // Resting baseline (captured on boot or with "Zero Hand" button)
+    let baselineFlat = [1170.0, 1170.0, 1170.0, 1170.0, 1170.0];
+    let isTared = false;
+    let tareSamples = 0;
+    let tareAccum = [0, 0, 0, 0, 0];
+    let latestRaw = [1170, 1170, 1170, 1170, 1170];
+    let requiredSpan = 250.0; // ADC counts needed for full 100% bend
+
+    // Load saved calibration if present
+    try {
+      const sb = localStorage.getItem("glove_base_flat");
+      const sp = localStorage.getItem("glove_span");
+      if (sb) { baselineFlat = JSON.parse(sb); isTared = true; }
+      if (sp) {
+        requiredSpan = parseFloat(sp);
+        document.getElementById("spanSlider").value = requiredSpan;
+        document.getElementById("spanVal").textContent = `${Math.round(requiredSpan)} counts`;
+      }
+    } catch (e) {}
+
+    function onTelemetryFrame(frame) {
+      // frame: { seq, ms, f1..f5, ax..gz }
+      seqVal.textContent = frame.seq;
+
+      if (lastSeq !== null && frame.seq > lastSeq + 1) {
+        lostTotal += (frame.seq - lastSeq - 1);
+        lostVal.textContent = lostTotal;
+      }
+      lastSeq = frame.seq;
+
+      frameCount++;
+      const now = Date.now();
+      if (now - lastFpsTime >= 1000) {
+        fpsVal.textContent = (frameCount * 1000 / (now - lastFpsTime)).toFixed(1);
+        frameCount = 0;
+        lastFpsTime = now;
+      }
+
+      const rawF = [frame.f1, frame.f2, frame.f3, frame.f4, frame.f5];
+      latestRaw = [...rawF];
+
+      // Automatic initial zeroing during first 5 frames if never calibrated
+      if (!isTared && tareSamples < 5) {
+        for (let i = 0; i < 5; i++) tareAccum[i] += rawF[i];
+        tareSamples++;
+        if (tareSamples === 5) {
+          for (let i = 0; i < 5; i++) {
+            const avg = tareAccum[i] / 5.0;
+            baselineFlat[i] = (avg > 200) ? avg : 1170.0;
+          }
+          isTared = true;
+          console.log("[Auto-Tare] Zeroed resting baseline to:", baselineFlat);
+        }
+      }
+
+      // Convert 5 flex sensor ADC counts to bend targets
+      for (let i = 0; i < 5; i++) {
+        const val = rawF[i];
+        
+        // 1. Detect disconnected or unpowered sensor (reading ~0V)
+        if (val < 150) {
+          targetBends[i] = 0.0; // Keep 3D finger open (straight), NOT folded!
+          if (fillEls[i]) {
+            fillEls[i].style.width = "0%";
+            fillEls[i].style.background = "#64748b";
+          }
+          if (txtEls[i]) {
+            txtEls[i].textContent = `${Math.round(val)} (DISC)`;
+          }
+          oscHistory[i].push(0.0);
+          if (oscHistory[i].length > OSC_LEN) oscHistory[i].shift();
+          continue;
+        }
+
+        // 2. Connected sensor: calculate bend using deviation from resting baseline
+        // If baseline was previously 0 (e.g. from bad tare), auto-adopt current reading
+        if (baselineFlat[i] < 200) {
+          baselineFlat[i] = val;
+        }
+
+        const diff = Math.abs(val - baselineFlat[i]);
+        const activeDiff = Math.max(0.0, diff - 30.0); // 30 count noise threshold
+        const norm = Math.min(1.0, Math.max(0.0, activeDiff / requiredSpan));
+
+        targetBends[i] = norm;
+
+        // Update left HUD
+        const pct = Math.round(norm * 100);
+        if (fillEls[i]) {
+          fillEls[i].style.width = `${pct}%`;
+          const hue = (1.0 - norm) * 120;
+          fillEls[i].style.background = `hsl(${hue}, 85%, 50%)`;
+        }
+        if (txtEls[i]) {
+          txtEls[i].textContent = `${Math.round(val)} (${pct}%)`;
+        }
+
+        // Record for oscilloscope
+        oscHistory[i].push(norm);
+        if (oscHistory[i].length > OSC_LEN) oscHistory[i].shift();
+      }
+
+      // 6-DOF IMU
+      const ax = frame.ax, ay = frame.ay, az = frame.az;
+      targetPitch = Math.atan2(ax, Math.sqrt(ay * ay + az * az));
+      targetRoll = Math.atan2(ay, az) * 0.8;
+
+      const pD = Math.round(targetPitch * 180 / Math.PI);
+      const rD = Math.round(targetRoll * 180 / Math.PI);
+      pitchDeg.textContent = `${pD}°`;
+      rollDeg.textContent = `${rD}°`;
+      accVector.textContent = `ACC: [${ax.toFixed(2)}, ${ay.toFixed(2)}, ${az.toFixed(2)}] g`;
+
+      if (az > 0.6) tiltState.textContent = "PALM DOWN";
+      else if (az < -0.6) tiltState.textContent = "PALM UP";
+      else if (ax > 0.6) tiltState.textContent = "UPRIGHT";
+      else tiltState.textContent = "TILTED";
+    }
+
+    function tareRestingHand() {
+      for (let i = 0; i < 5; i++) {
+        baselineFlat[i] = (latestRaw[i] >= 150) ? latestRaw[i] : 1170.0;
+      }
+      isTared = true;
+      localStorage.setItem("glove_base_flat", JSON.stringify(baselineFlat));
+      console.log("Resting Hand Zeroed to:", baselineFlat);
+      const spanMsg = document.getElementById("spanVal");
+      if (spanMsg) {
+        spanMsg.textContent = `${Math.round(requiredSpan)} counts (ZEROED!)`;
+        setTimeout(() => spanMsg.textContent = `${Math.round(requiredSpan)} counts`, 1200);
+      }
+    }
+
+    function resetCalibration() {
+      localStorage.removeItem("glove_base_flat");
+      localStorage.removeItem("glove_span");
+      baselineFlat = [1170.0, 1170.0, 1170.0, 1170.0, 1170.0];
+      requiredSpan = 250.0;
+      isTared = false;
+      tareSamples = 0;
+      tareAccum = [0, 0, 0, 0, 0];
+      document.getElementById("spanSlider").value = 250;
+      document.getElementById("spanVal").textContent = "250 counts (RESET)";
+      console.log("Calibration reset to factory defaults.");
+    }
+
+    function updateSpan(val) {
+      requiredSpan = parseFloat(val);
+      localStorage.setItem("glove_span", JSON.stringify(requiredSpan));
+      const spanMsg = document.getElementById("spanVal");
+      if (spanMsg) spanMsg.textContent = `${Math.round(requiredSpan)} counts`;
+    }
+
+    // ---------- Live Oscilloscope Canvas ----------
+    const oscCanvas = document.getElementById("oscCanvas");
+    const oscCtx = oscCanvas.getContext("2d");
+    const CH_COLORS = ["#38bdf8", "#34d399", "#f59e0b", "#ec4899", "#a855f7"];
+
+    function resizeOscilloscope() {
+      oscCanvas.width = oscCanvas.clientWidth * window.devicePixelRatio;
+      oscCanvas.height = oscCanvas.clientHeight * window.devicePixelRatio;
+    }
+
+    function drawOscilloscope() {
+      requestAnimationFrame(drawOscilloscope);
+      if (!oscCanvas.width) return;
+
+      const w = oscCanvas.width;
+      const h = oscCanvas.height;
+      oscCtx.clearRect(0, 0, w, h);
+
+      // Grid lines
+      oscCtx.strokeStyle = "rgba(255,255,255,0.06)";
+      oscCtx.lineWidth = 1;
+      for (let y = 0; y < h; y += h / 4) {
+        oscCtx.beginPath();
+        oscCtx.moveTo(0, y);
+        oscCtx.lineTo(w, y);
+        oscCtx.stroke();
+      }
+
+      // Plot 5 channels
+      for (let c = 0; c < 5; c++) {
+        const hist = oscHistory[c];
+        if (hist.length < 2) continue;
+
+        oscCtx.strokeStyle = CH_COLORS[c];
+        oscCtx.lineWidth = 2 * window.devicePixelRatio;
+        oscCtx.beginPath();
+
+        const step = w / (OSC_LEN - 1);
+        for (let i = 0; i < hist.length; i++) {
+          const x = i * step;
+          const y = h - (hist[i] * (h - 10) + 5);
+          if (i === 0) oscCtx.moveTo(x, y);
+          else oscCtx.lineTo(x, y);
+        }
+        oscCtx.stroke();
+      }
+    }
+
+    // ---------- Server-Sent Events (SSE) from udp_3d_server.py ----------
+    function connectSSE() {
+      const connBadge = document.getElementById("connBadge");
+      const connText = document.getElementById("connText");
+
+      const evtSource = new EventSource("/events");
+
+      evtSource.onopen = () => {
+        connBadge.style.background = "rgba(16, 185, 129, 0.15)";
+        connBadge.style.color = "#34d399";
+        connText.textContent = "LIVE 20 Hz UDP STREAM CONNECTED";
+      };
+
+      evtSource.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === "phrase") {
+            onPhraseSpoken(msg.phrase);
+          } else {
+            onTelemetryFrame(msg);
+          }
+        } catch (err) {
+          console.error("Frame parse error:", err);
+        }
+      };
+
+    function speakText(text) {
+      if (!("speechSynthesis" in window)) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 0.95;
+      utterance.pitch = 1.0;
+      window.speechSynthesis.speak(utterance);
+    }
+
+    function onPhraseSpoken(phrase) {
+      console.log("[SPEECH SYNTHESIS] Speaking:", phrase);
+      speakText(phrase);
+      
+      const banner = document.getElementById("speechBanner");
+      if (banner) {
+        banner.textContent = `🔊 "${phrase}"`;
+        banner.style.opacity = "1";
+        banner.style.transform = "translate(-50%, 0) scale(1.05)";
+        clearTimeout(banner.timer);
+        banner.timer = setTimeout(() => {
+          banner.style.opacity = "0";
+          banner.style.transform = "translate(-50%, -10px) scale(1)";
+        }, 3200);
+      }
+    }
+
+      evtSource.onerror = () => {
+        connBadge.style.background = "rgba(239, 68, 68, 0.15)";
+        connBadge.style.color = "#f87171";
+        connText.textContent = "WAITING FOR UDP STREAM (RUN udp_3d_server.py)";
+      };
+    }
+
+    // Initialize
+    window.addEventListener("DOMContentLoaded", () => {
+      init3D();
+      resizeOscilloscope();
+      drawOscilloscope();
+      connectSSE();
+    });
+  </script>
+</body>
+</html>
